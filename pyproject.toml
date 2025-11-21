@@ -14,7 +14,6 @@ authors = [
   "Sulaiman Rasyid Dinitra Azis",
   "Sony Surahman",
 ]
-package-mode = false
 
 packages = [
   { include = "rag", from = "src" }
@@ -24,8 +23,6 @@ packages = [
 cloudflare = ">=4.3.1"
 fastapi = ">=0.121.3"
 httpx = ">=0.27.2"
-langchain = ">=0.3.2"
-langchain-community = ">=0.3.1"
 openai = ">=2.8.1"
 poetry = ">=2.2.1"
 poetry-core = ">=2.2.1"
@@ -34,7 +31,7 @@ python = ">=3.11,<4.0"
 uvicorn = ">=0.32.0"
 
 [tool.poetry.group.dev.dependencies]
-ruff = "^0.6.9"
+ruff = "^0.14.5"
 
 [tool.poetry.scripts]
 rag = "rag.__main__:main"
