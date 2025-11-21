@@ -3,9 +3,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import cloudflare
-import uvicorn
 
-from .app import fastapi
+from .app import create
 from .ingest import ingestion
 
 parser = argparse.ArgumentParser(prog='rag', description='Policy RAG')
@@ -18,8 +17,15 @@ def main(argv: Sequence[str] | None = None) -> int:
   serve.add_argument('--cloudflare-api-token', type=str, required=True, help='Cloudflare API Token')
   serve.add_argument('--cloudflare-index-name', type=str, required=True, help='Cloudflare Vectorize Index Name')
   serve.add_argument(
-    '--cloudflare-model-name', type=str, default='@cf/google/embeddinggemma-300m', help='Cloudflare Model Name'
+    '--cloudflare-generation-model-name', type=str, default='@cf/google/gemma-3-12b-it', help='Cloudflare Model Name'
   )
+  serve.add_argument(
+    '--cloudflare-embedding-model-name',
+    type=str,
+    default='@cf/google/embeddinggemma-300m',
+    help='Cloudflare Model Name',
+  )
+  serve.add_argument('--top-k', type=int, default=5, help='Top-K Vector Search Results')
   serve.add_argument('--host', type=str, default='127.0.0.1', help='FastAPI host')
   serve.add_argument('--port', type=int, default=8080, help='FastAPI port')
 
@@ -49,16 +55,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
   match args.command:
     case 'serve':
-      fastapi.state.config = {
-        'cloudflare': {
-          'account_id': args.cloudflare_account_id,
-          'api_token': args.cloudflare_api_token,
-          'index_name': args.cloudflare_index_name,
-          'model_name': args.cloudflare_model_name,
-        },
-      }
-
-      uvicorn.run(fastapi, host=args.host, port=args.port)
+      create(
+        args.cloudflare_account_id,
+        args.cloudflare_api_token,
+        args.cloudflare_index_name,
+        args.cloudflare_generation_model_name,
+        args.cloudflare_embedding_model_name,
+        args.top_k,
+      )
     case 'ingest':
       ingestion(
         account_id=args.cloudflare_account_id,
