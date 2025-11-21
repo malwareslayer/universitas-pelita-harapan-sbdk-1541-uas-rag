@@ -1,7 +1,5 @@
-import json
 import re
 from pathlib import Path
-from uuid import uuid4
 
 import cloudflare
 from tqdm import tqdm
@@ -88,8 +86,6 @@ def ingestion(
       name=index_name,
     )
 
-  t = []
-
   for path in documents.rglob('*'):
     if path.suffix.lower() in {'.md', '.txt'} and path.is_file():
       for index, text in enumerate(stream(path, size, overlap)):
@@ -98,29 +94,23 @@ def ingestion(
         if not text:
           continue
 
-        t.append(text)
-
-        if len(t) >= 32:
-          embeddings = map(
-            lambda embedding: {
-              'id': f'{path.stem}-{index}-{uuid4()}'.replace(' ', '-'),
-              'values': embedding,
-              'metadata': {
-                'source': str(path),
-                'text': text,
-                'index': index,
-              },
+        cf.vectorize.indexes.insert(
+          index_name=index_name,
+          account_id=account_id,
+          extra_headers={
+            'Content-Type': 'application/x-ndjson',
+          },
+          body={
+            'id': str(index),
+            'values': cf.ai.run(model_name, account_id=account_id, text=text)['data'][0],
+            'namespace': 'text',
+            'metadata': {
+              'source': str(path),
+              'text': text,
+              'index': index,
             },
-            cf.ai.run(model_name, account_id=account_id, text=t),
-          )
-
-          cf.vectorize.indexes.insert(
-            index_name=index_name,
-            account_id=account_id,
-            body='\n'.join(json.dumps(embedding, ensure_ascii=False) for embedding in embeddings) + '\n',
-          )
-
-          t.clear()
+          },
+        )
 
     return 0
 
