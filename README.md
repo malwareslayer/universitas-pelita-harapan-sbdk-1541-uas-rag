@@ -1,1 +1,3 @@
-# universitas-pelita-harapan-sbdk-1541-uas-rag
+# Universitas Pelita Harapan UAS Project SBDK 1541
+
+Vector DB RAG
