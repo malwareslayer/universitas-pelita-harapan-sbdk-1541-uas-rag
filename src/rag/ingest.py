@@ -1,99 +1,128 @@
+import json
+import re
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
-from openai import OpenAI
+import cloudflare
+from tqdm import tqdm
+
+
+def stream(path: Path, size: int, overlap: int) -> str:
+  buffer = ''
+  step = size - overlap
+
+  if step <= 0:
+    raise ValueError('Overlap harus lebih kecil dari ukuran chunk.')
+
+  with (
+    path.open(mode='r', encoding='utf-8') as file,
+    tqdm(
+      total=path.stat().st_size,
+      unit='B',
+      unit_scale=True,
+      desc=f'Stream {path.name}',
+      ncols=80,
+      leave=False,
+    ) as bar,
+  ):
+    while True:
+      needed = size - len(buffer)
+
+      if needed > 0:
+        chunk = file.read(needed)
+
+        if not chunk:  # EOF
+          if buffer:
+            yield buffer
+
+          break
+
+        buffer += chunk
+        bar.update(len(chunk))
+
+      if len(buffer) >= size:
+        yield buffer[:size]
+
+        buffer = buffer[step:]
+
+
+def clean(text: str) -> str:
+  lines = []
+
+  for line in text.splitlines():
+    line = line.strip()
+
+    if not line:
+      continue
+
+    line = re.sub(r'\s+', ' ', line)
+    lines.append(line)
+
+  return '\n'.join(lines)
 
 
 def ingestion(
-  base: Path,
-  openai_api_key,
-  openai_embedding_model,
-  cloudflare_account_id,
-  cloudflare_index,
-  cloudflare_api_token,
-  chunk_size=500,
-  chunk_overlap=100,
-):
-  if not base.exists():
-    raise FileNotFoundError(f'Folder tidak ditemukan: {base}')
+  documents: Path,
+  account_id: str,
+  api_token: str,
+  index_name: str,
+  model_name: str,
+  top_k: int,
+  size: int,
+  overlap: int,
+) -> int:
+  if not documents.exists():
+    raise FileNotFoundError(f'Folder tidak ditemukan: {documents}')
 
-  docs = []
+  cf = cloudflare.Client(api_token=api_token)
 
-  for path in base.rglob('*'):
+  try:
+    cf.vectorize.indexes.get(index_name=index_name, account_id=account_id)
+  except cloudflare.NotFoundError:
+    cf.vectorize.indexes.create(
+      account_id=account_id,
+      config={
+        'dimensions': 768,
+        'metric': 'cosine',
+      },
+      name=index_name,
+    )
+
+  t = []
+
+  for path in documents.rglob('*'):
     if path.suffix.lower() in {'.md', '.txt'} and path.is_file():
-      docs.append((path, path.read_text(encoding='utf-8')))
+      for index, text in enumerate(stream(path, size, overlap)):
+        text = clean(text)
 
-  if not docs:
-    raise RuntimeError('Tidak ada dokumen .md atau .txt yang ditemukan untuk di-ingest.')
+        if not text:
+          continue
 
-  openai = OpenAI(api_key=openai_api_key)
-  http = httpx.Client(timeout=httpx.Timeout(30, connect=10))
+        t.append(text)
 
-  url = (
-    f'https://api.cloudflare.com/client/v4/accounts/{cloudflare_account_id}'
-    f'/ai/vectorize/indexes/{cloudflare_index}/upsert'
-  )
+        if len(t) >= 32:
+          embeddings = map(
+            lambda embedding: {
+              'id': f'{path.stem}-{index}-{uuid4()}'.replace(' ', '-'),
+              'values': embedding,
+              'metadata': {
+                'source': str(path),
+                'text': text,
+                'index': index,
+              },
+            },
+            cf.ai.run(model_name, account_id=account_id, text=t),
+          )
 
-  headers = {
-    'Authorization': f'Bearer {cloudflare_api_token}',
-    'Content-Type': 'application/json',
-  }
+          cf.vectorize.indexes.insert(
+            index_name=index_name,
+            account_id=account_id,
+            body='\n'.join(json.dumps(embedding, ensure_ascii=False) for embedding in embeddings) + '\n',
+          )
 
-  def chunks(text):
-    start = 0
-    length = len(text)
+          t.clear()
 
-    while start < length:
-      end = start + chunk_size
-
-      yield text[start:end]
-
-      start = end - chunk_overlap
-
-      if start < 0:
-        start = 0
-
-  vectors = []
-
-  for path, content in docs:
-    for index, chunk in enumerate(chunks(content)):
-      chunk = chunk.strip()
-
-      if not chunk:
-        continue
-
-      embedding = openai.embeddings.create(
-        model=openai_embedding_model,
-        input=chunk,
-      )
-
-      vector = embedding.data[0].embedding
-
-      metadata = {
-        'source': str(path.relative_to(base)),
-        'chunk': chunk,
-        'chunk_index': index,
-      }
-
-      vectors.append(
-        {
-          'id': f'{path.stem}-{index}-{uuid4()}'.replace(' ', '-'),
-          'values': vector,
-          'metadata': metadata,
-        }
-      )
-
-      if len(vectors) >= 50:
-        response = http.post(url, headers=headers, json={'vectors': vectors})
-        response.raise_for_status()
-        vectors = []
-
-  if vectors:
-    response = http.post(url, headers=headers, json={'vectors': vectors})
-    response.raise_for_status()
-
-  http.close()
+    return 0
 
 
 __all__ = ['ingestion']
