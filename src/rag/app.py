@@ -6,17 +6,17 @@ from .schema import ChatRequest
 flask = Flask(__name__, static_folder=None)
 
 PROMPT = """
-Anda adalah asisten AI yang menjawab pertanyaan berdasarkan dokumen hukum Indonesia
-(misalnya undang-undang, peraturan pemerintah, peraturan menteri, atau putusan pengadilan).
+Anda adalah asisten AI yang ahli dalam bidang hukum dan undang-undang
+Sebagai asisten AI anda diminta untuk menjawab pertanyaan berdasarkan dokumen hukum Indonesia
+misalnya undang-undang, peraturan pemerintah, peraturan menteri, atau putusan pengadilan.
 
 ATURAN:
-1. Jawab HANYA berdasarkan konteks dokumen di bawah.
+1. Jawab HANYA berdasarkan "Konteks Dokumen" di bawah.
 2. Jika informasi TIDAK ADA dalam konteks, jawab: "Saya tidak menemukan pengaturan yang relevan dalam dokumen hukum."
-3. Jawab SINGKAT dan LANGSUNG (maksimal 2–3 kalimat).
-4. JANGAN menambahkan informasi di luar konteks atau asumsi pribadi.
-5. Jika pasal/ayat jelas, sebutkan nomor pasal/ayat.
+3. Jika pasal/ayat jelas, sebutkan undang-undang nya beserta nomor pasal/ayat dan tahun.
+4. JANGAN menambahkan informasi di luar konteks dokumen atau asumsi pribadi.
 
-Konteks dokumen:
+Konteks Dokumen:
 {context}
 
 Pertanyaan: {question}
@@ -36,6 +36,7 @@ async def chat():
     text=serializer.text,
   )
 
+  # noinspection PyTypeChecker
   query = await cf.vectorize.indexes.query(
     index_name=flask.config['cloudflare']['index_name'],
     account_id=flask.config['cloudflare']['account_id'],
@@ -57,20 +58,22 @@ async def chat():
 
   context = '\n\n---\n\n'.join(contexts) if contexts else ''
 
-  prompt = PROMPT.format(
+  content = PROMPT.format(
     context=context,
     question=serializer.text,
   )
 
+  # noinspection PyTypeChecker
   llm = await cf.ai.run(
     flask.config['cloudflare']['generation_model_name'],
     account_id=flask.config['cloudflare']['account_id'],
     messages=[
-      {'role': 'user', 'content': prompt},
+      {'role': 'user', 'content': content},
     ],
     top_k=flask.config['top-k'],
   )
 
+  # noinspection PyTypeChecker
   answer = llm['response']
 
   return {
