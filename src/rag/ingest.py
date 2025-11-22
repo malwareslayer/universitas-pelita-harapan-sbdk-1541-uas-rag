@@ -1,11 +1,16 @@
 import re
+import unicodedata
+from collections.abc import Generator
 from pathlib import Path
 
 import cloudflare
 from tqdm import tqdm
 
+ZERO_WIDTH_RE = re.compile(r'[\u200B\u200C\u200D\uFEFF]')
+CONTROL_RE = re.compile(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]')
 
-def stream(path: Path, size: int, overlap: int) -> str:
+
+def stream(path: Path, size: int, overlap: int) -> Generator[str]:
   buffer = ''
   step = size - overlap
 
@@ -45,18 +50,18 @@ def stream(path: Path, size: int, overlap: int) -> str:
 
 
 def clean(text: str) -> str:
-  lines = []
+  if not text:
+    return ''
 
-  for line in text.splitlines():
-    line = line.strip()
+  text = unicodedata.normalize('NFKC', text)
+  text = ZERO_WIDTH_RE.sub('', text)
+  text = CONTROL_RE.sub(' ', text)
+  text = text.replace('\u2013', '-').replace('\u2014', '-')
+  text = text.replace('\u2018', "'").replace('\u2019', "'").replace('\u201c', '"').replace('\u201d', '"')
+  text = re.sub(r'\s+', ' ', text)
+  text = text.strip()
 
-    if not line:
-      continue
-
-    line = re.sub(r'\s+', ' ', line)
-    lines.append(line)
-
-  return '\n'.join(lines)
+  return text
 
 
 def ingestion(
@@ -74,18 +79,6 @@ def ingestion(
 
   cf = cloudflare.Client(api_token=api_token)
 
-  try:
-    cf.vectorize.indexes.get(index_name=index_name, account_id=account_id)
-  except cloudflare.NotFoundError:
-    cf.vectorize.indexes.create(
-      account_id=account_id,
-      config={
-        'dimensions': 768,
-        'metric': 'cosine',
-      },
-      name=index_name,
-    )
-
   for path in documents.rglob('*'):
     if path.suffix.lower() in {'.md', '.txt'} and path.is_file():
       for index, text in enumerate(stream(path, size, overlap)):
@@ -94,6 +87,7 @@ def ingestion(
         if not text:
           continue
 
+        # noinspection PyTypeChecker
         cf.vectorize.indexes.insert(
           index_name=index_name,
           account_id=account_id,
@@ -112,7 +106,7 @@ def ingestion(
           },
         )
 
-    return 0
+  return 0
 
 
 __all__ = ['ingestion']
