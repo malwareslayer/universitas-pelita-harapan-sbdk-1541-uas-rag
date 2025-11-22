@@ -29,27 +29,34 @@ def main(argv: Sequence[str] | None = None) -> int:
   serve.add_argument('--host', type=str, default='127.0.0.1', help='FastAPI host')
   serve.add_argument('--port', type=int, default=8080, help='FastAPI port')
 
-  ingest_cmd = command.add_parser('ingest', help='Ingest Documents To Cloudflare AI & Vector')
-  ingest_cmd.add_argument('--cloudflare-account-id', type=str, required=True, help='Cloudflare Account ID')
-  ingest_cmd.add_argument('--cloudflare-api-token', type=str, required=True, help='Cloudflare API Token')
-  ingest_cmd.add_argument('--cloudflare-index-name', type=str, required=True, help='Cloudflare Vectorize Index Name')
-  ingest_cmd.add_argument(
+  ingest = command.add_parser('ingest', help='Ingest Documents To Cloudflare AI & Vector')
+  ingest.add_argument('--cloudflare-account-id', type=str, required=True, help='Cloudflare Account ID')
+  ingest.add_argument('--cloudflare-api-token', type=str, required=True, help='Cloudflare API Token')
+  ingest.add_argument('--cloudflare-index-name', type=str, required=True, help='Cloudflare Vectorize Index Name')
+  ingest.add_argument(
     '--cloudflare-model-name', type=str, default='@cf/google/embeddinggemma-300m', help='Cloudflare Model Name'
   )
-  ingest_cmd.add_argument(
+  ingest.add_argument(
     '--docs',
     type=Path,
     default=Path(__file__).resolve().parent.parent.parent / 'docs',
     help='Directory Containing Documents',
   )
-  ingest_cmd.add_argument('--top-k', type=int, default=5, help='Top-K Vector Search Results')
-  ingest_cmd.add_argument('--chunk-size', type=int, default=512, help='Chunk')
-  ingest_cmd.add_argument('--chunk-overlap', type=int, default=128, help='Overlap')
+  ingest.add_argument('--top-k', type=int, default=5, help='Top-K Vector Search Results')
+  ingest.add_argument('--chunk-size', type=int, default=2048, help='Chunk')
+  ingest.add_argument('--chunk-overlap', type=int, default=512, help='Overlap')
 
-  delete = command.add_parser('delete', help='Delete Cloudflare Vectorize Index')
-  delete.add_argument('name', type=str, help='Cloudflare Vectorize index name to delete')
-  delete.add_argument('--cloudflare-account-id', type=str, required=True, help='Cloudflare Account ID')
-  delete.add_argument('--cloudflare-api-token', type=str, required=True, help='Cloudflare API Token')
+  c = command.add_parser('create', help='Create Cloudflare Vectorize Index')
+  c.add_argument('name', type=str, help='Cloudflare Vectorize Index Name To Create')
+  c.add_argument('dimension', type=int, help='Cloudflare Vectorize Dimension')
+  c.add_argument('--metric', type=str, default='cosine', help='Cloudflare Vectorize Metric Search')
+  c.add_argument('--cloudflare-account-id', type=str, required=True, help='Cloudflare Account ID')
+  c.add_argument('--cloudflare-api-token', type=str, required=True, help='Cloudflare API Token')
+
+  d = command.add_parser('delete', help='Delete Cloudflare Vectorize Index')
+  d.add_argument('name', type=str, help='Cloudflare Vectorize Index Name To Delete')
+  d.add_argument('--cloudflare-account-id', type=str, required=True, help='Cloudflare Account ID')
+  d.add_argument('--cloudflare-api-token', type=str, required=True, help='Cloudflare API Token')
 
   args = parser.parse_args(argv)
 
@@ -73,6 +80,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         top_k=args.top_k,
         size=args.chunk_size,
         overlap=args.chunk_overlap,
+      )
+    case 'create':
+      cf = cloudflare.Client(api_token=args.cloudflare_api_token)
+      # noinspection PyTypeChecker
+      cf.vectorize.indexes.create(
+        account_id=args.cloudflare_account_id,
+        config={
+          'dimensions': 768,
+          'metric': 'cosine',
+        },
+        name=args.name,
       )
     case 'delete':
       cf = cloudflare.Client(api_token=args.cloudflare_api_token)
