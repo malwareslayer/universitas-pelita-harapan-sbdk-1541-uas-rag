@@ -25,7 +25,6 @@ def stream(path: Path, size: int, overlap: int) -> Generator[str]:
       unit_scale=True,
       desc=f'Stream {path.name}',
       ncols=80,
-      leave=False,
     ) as bar,
   ):
     while True:
